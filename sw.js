@@ -1,8 +1,8 @@
-/* Maré Alta — service worker v4: app instalável + offline básico.
+/* Maré Alta — service worker v5: app instalável + offline básico.
    - Shell (html/css/js/ícones): cache-first.
    - APIs (Open-Meteo, tabuamare): network-first com fallback pro cache.
    Funciona em http://localhost ou https (não em file://). */
-const CACHE = 'marealta-v4';
+const CACHE = 'marealta-v5';
 const SHELL = [
   './',
   './index.html',

@@ -1,5 +1,6 @@
 /* MARÉ ALTA v4 — remake "weather app": navy-indigo profundo + periwinkle,
    cards elevados claros, mobile-first sem nada cortado. */
+ul#hist,ul#hist li{list-style:none!important;list-style-type:none!important}ul#hist{padding-left:0!important;margin-left:0!important}ul#hist li::marker{content:none!important}
 :root{
   --bg0:#0b0e1d;
   --bg1:#141838;

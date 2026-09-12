@@ -365,7 +365,7 @@ function msCriadoEm(s) { // "2026-09-12 16:45:15" (UTC do SQLite) -> ms
 // dedupe de verdade: compara com a ÚLTIMA salva (back ou local). Mesmo pico+fonte <30min = não salva.
 async function jaSalvouRecente(item) {
   const LIM = 18e5, agora = Date.now();
-  const igual = (u) => u && u.spot_id === item.spot_id && (u.fonte || '') === (item.fonte || '') && (agora - msCriadoEm(u.criado_em || u.quando)) < LIM;
+  const igual = (u) => u && u.spot_id === item.spot_id && (agora - msCriadoEm(u.criado_em || u.quando)) < LIM;
   try {
     const r = await fetch(`${BACK_URL}/api/consultas?limit=1`, { signal: AbortSignal.timeout(1500) });
     if (r.ok) { const l = await r.json(); if (igual(l[0])) return true; }
