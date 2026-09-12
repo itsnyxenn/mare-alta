@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+*.sqlite3
+
+# Flask
+instance/
+
+# Dados locais do app (o .db é gerado ao rodar)
+api/data/
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

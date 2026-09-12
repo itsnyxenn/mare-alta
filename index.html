@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Maré Alta — Clima e maré de Recife/Olinda</title>
+<meta name="description" content="Previsão de clima, ondas e tábua de maré do litoral de Recife e Olinda com dados reais e gratuitos." />
+<meta name="theme-color" content="#0a0a0a" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🌊</text></svg>" />
+</head>
+<body>
+
+<div class="grain"></div>
+
+<header class="top">
+  <div class="brand">🌊 MARÉ ALTA <span class="ver">v1.0</span></div>
+  <div class="top-right mono">
+    <span id="statusPill" class="pill">● conectando…</span>
+    <span id="clock">--:--</span>
+  </div>
+</header>
+
+<main>
+  <section class="spots">
+    <h2>Escolha o pico</h2>
+    <div id="chips" class="chips"></div>
+  </section>
+
+  <div id="loading" class="loading mono">⌛ puxando dados do mar…</div>
+
+  <div id="erro" class="erro" hidden>
+    <p><strong>Deu ruim na conexão com a API.</strong></p>
+    <p id="erroMsg" class="mono"></p>
+    <button id="retry">Tentar de novo ↻</button>
+  </div>
+
+  <div id="conteudo" hidden>
+    <section class="agora-grid">
+      <div class="card big">
+        <p class="label">AR AGORA</p>
+        <p class="huge"><span id="tAr">--</span>°C</p>
+        <p id="tCond" class="cond">--</p>
+        <p class="mono muted">sensação <span id="tSens">--</span>°C</p>
+      </div>
+      <div class="card">
+        <p class="label">VENTO</p>
+        <p class="big"><span id="tVento">--</span> <small>km/h</small></p>
+        <p class="mono muted">umidade <span id="tUmi">--</span>%</p>
+      </div>
+      <div class="card">
+        <p class="label">MAR AGORA</p>
+        <p class="big">🌊 <span id="tOnda">--</span> <small>m</small></p>
+        <p class="mono muted">água a <span id="tMar">--</span>°C</p>
+      </div>
+      <div class="card tide">
+        <p class="label">NÍVEL DO MAR</p>
+        <p class="big"><span id="tNivel">--</span> <small>m</small></p>
+        <p id="tTend" class="tend">--</p>
+        <p class="mono muted">próx: <span id="tProx">--</span></p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Tábua de maré <small>· próximas preia-mares e baixa-mares</small></h2>
+      <ul id="mares" class="mares"></ul>
+      <p class="aviso">Maré estimada por modelo (Open-Meteo/MFWAM) — pode divergir da tábua oficial da Marinha. Não usar para navegação. ⚓</p>
+    </section>
+
+    <section>
+      <h2>Próximas 24h</h2>
+      <div id="horas" class="horas"></div>
+    </section>
+
+    <section>
+      <h2>Próximos dias</h2>
+      <div id="dias" class="dias"></div>
+    </section>
+
+    <section>
+      <h2>Últimas consultas <button id="limparHist" class="link-btn">limpar</button></h2>
+      <ul id="hist" class="hist"></ul>
+      <p id="histOrigem" class="mono muted"></p>
+    </section>
+  </div>
+</main>
+
+<footer class="mono">
+  <span>dados: Open-Meteo (forecast + marine) · sem chave, grátis</span>
+  <span>feito por Luiz Beltrão 🤘 · <a href="../portfolio-luiz/index.html">portfólio</a></span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
