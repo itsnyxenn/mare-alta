@@ -19,7 +19,10 @@ const SPOTS = [
 // Back Flask: local por padrão; p/ usar online, cola a URL do Render
 // no campo "back-end" (seção Histórico) — fica salva no navegador.
 const BACK_URL_PADRAO = 'http://127.0.0.1:5000';
-const BACK_URL = localStorage.getItem('marealta_backend') || BACK_URL_PADRAO;
+// storage com colete: se o navegador bloquear, o app segue sem salvar
+function lerLS(chave, padrao) { try { const v = localStorage.getItem(chave); return v == null ? padrao : v; } catch { return padrao; } }
+function escLS(chave, valor) { try { if (valor) localStorage.setItem(chave, valor); else localStorage.removeItem(chave); } catch { /* segue o jogo */ } }
+const BACK_URL = lerLS('marealta_backend', BACK_URL_PADRAO);
 const TZ = 'America/Recife';
 const UTC3 = 3 * 3600 * 1000;
 
@@ -343,29 +346,36 @@ function renderHorasDias(clima, mar) {
 }
 
 // ---------- histórico (back Flask ou localStorage) ----------
+// Histórico é EXTRA: nunca pode quebrar o status online do app.
 async function salvarHistorico(entry) {
-  const item = { ...entry, spot_id: spotAtual.id, spot_nome: spotAtual.nome, quando: new Date().toISOString() };
   try {
-    const r = await fetch(`${BACK_URL}/api/consultas`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item),
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!r.ok) throw new Error('back respondeu ' + r.status);
+    const item = { ...entry, spot_id: spotAtual.id, spot_nome: spotAtual.nome, quando: new Date().toISOString() };
+    try {
+      const r = await fetch(`${BACK_URL}/api/consultas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item),
+        signal: AbortSignal.timeout(1500),
+      });
+      if (!r.ok) throw new Error('back respondeu ' + r.status);
+    } catch {
+      const loc = JSON.parse(lerLS('marealta_hist', '[]') || '[]');
+      loc.unshift(item);
+      escLS('marealta_hist', JSON.stringify(loc.slice(0, 20)));
+    }
+    await carregarHistorico();
   } catch {
-    const loc = JSON.parse(localStorage.getItem('marealta_hist') || '[]');
-    loc.unshift(item);
-    localStorage.setItem('marealta_hist', JSON.stringify(loc.slice(0, 20)));
+    /* histórico falhou (DOM/storage): o app segue online com os dados */
   }
-  await carregarHistorico();
 }
 
 async function carregarHistorico() {
   const ul = $('hist');
+  const msg = $('histOrigem');
+  if (!ul || !msg) return; // HTML sem a seção: histórico some, app segue
   ul.innerHTML = '';
   const mostra = (lista, origem) => {
-    $('histOrigem').textContent = origem;
+    msg.textContent = origem;
     if (!lista.length) {
       const li = document.createElement('li');
       li.textContent = 'nada por aqui ainda — escolhe um pico 👆';
@@ -384,8 +394,9 @@ async function carregarHistorico() {
     if (!r.ok) throw new Error();
     mostra(await r.json(), 'salvo no back-end (SQLite) ✅');
   } catch {
-    mostra(JSON.parse(localStorage.getItem('marealta_hist') || '[]'),
-      'back off — só neste navegador (rode api/app.py p/ SQLite)');
+    let loc = [];
+    try { const v = JSON.parse(lerLS('marealta_hist', '[]') || '[]'); if (Array.isArray(v)) loc = v; } catch { loc = []; }
+    mostra(loc, 'back off — só neste navegador (rode api/app.py p/ SQLite)');
   }
 }
 
@@ -532,17 +543,19 @@ document.querySelectorAll('.seg button').forEach((b) =>
   b.addEventListener('click', () => { fonte = b.dataset.f; carregar(spotAtual); }));
 
 $('retry').addEventListener('click', () => carregar(spotAtual));
-$('limparHist').addEventListener('click', async () => {
-  localStorage.removeItem('marealta_hist');
-  await carregarHistorico();
+const btnLimpar = $('limparHist');
+if (btnLimpar) btnLimpar.addEventListener('click', async () => {
+  escLS('marealta_hist', '');
+  try { await carregarHistorico(); } catch { /* segue */ }
 });
 
 // URL do back-end configurável (p/ apontar pro Render quando online)
-$('backendUrl').value = localStorage.getItem('marealta_backend') || BACK_URL_PADRAO;
-$('salvarBackend').addEventListener('click', () => {
-  const v = $('backendUrl').value.trim().replace(/\/$/, '');
-  if (v) localStorage.setItem('marealta_backend', v);
-  else localStorage.removeItem('marealta_backend');
+const campoBackend = $('backendUrl');
+if (campoBackend) campoBackend.value = lerLS('marealta_backend', BACK_URL_PADRAO);
+const btnBackend = $('salvarBackend');
+if (btnBackend) btnBackend.addEventListener('click', () => {
+  const v = campoBackend.value.trim().replace(/\/$/, '');
+  escLS('marealta_backend', v);
   location.reload(); // recarrega já apontando pro back novo
 });
 
