@@ -165,6 +165,19 @@ def salvar_consulta():
     return jsonify({"ok": True, "id": cur.lastrowid}), 201
 
 
+@app.delete("/api/consultas")
+def limpar_consultas():
+    """Limpa o histórico (tudo, ou de um pico: ?spot_id=porto)."""
+    db = get_db()
+    spot = (request.args.get("spot_id") or "").strip()
+    if spot:
+        cur = db.execute("DELETE FROM consultas WHERE spot_id = ?", (spot,))
+    else:
+        cur = db.execute("DELETE FROM consultas")
+    db.commit()
+    return jsonify({"ok": True, "apagadas": cur.rowcount})
+
+
 if __name__ == "__main__":
     init_db()
     # Na nuvem (Render etc.) a porta vem em $PORT e o host precisa ser 0.0.0.0.

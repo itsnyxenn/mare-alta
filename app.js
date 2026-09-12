@@ -357,14 +357,31 @@ function renderHorasDias(clima, mar) {
 
 // ---------- histórico (back Flask ou localStorage) ----------
 // Histórico é EXTRA: nunca pode quebrar o status online do app.
-let ultimoSave = { spot: '', t: 0 };
+function msCriadoEm(s) { // "2026-09-12 16:45:15" (UTC do SQLite) -> ms
+  const t = Date.parse(String(s || '').replace(' ', 'T') + 'Z');
+  return Number.isFinite(t) ? t : 0;
+}
+
+// dedupe de verdade: compara com a ÚLTIMA salva (back ou local). Mesmo pico+fonte <30min = não salva.
+async function jaSalvouRecente(item) {
+  const LIM = 18e5, agora = Date.now();
+  const igual = (u) => u && u.spot_id === item.spot_id && (u.fonte || '') === (item.fonte || '') && (agora - msCriadoEm(u.criado_em || u.quando)) < LIM;
+  try {
+    const r = await fetch(`${BACK_URL}/api/consultas?limit=1`, { signal: AbortSignal.timeout(1500) });
+    if (r.ok) { const l = await r.json(); if (igual(l[0])) return true; }
+  } catch { /* tenta o local */ }
+  try {
+    const v = JSON.parse(lerLS('marealta_hist', '[]') || '[]');
+    const loc = Array.isArray(v) ? v : [];
+    if (igual(loc[0])) return true;
+  } catch { /* segue */ }
+  return false;
+}
+
 async function salvarHistorico(entry) {
-  // dedupe: mesmo pico nos últimos 30min não salva de novo (sem flood no histórico)
-  const agoraSave = Date.now();
-  if (ultimoSave.spot === spotAtual.id && agoraSave - ultimoSave.t < 18e5) return;
-  ultimoSave = { spot: spotAtual.id, t: agoraSave };
   try {
     const item = { ...entry, spot_id: spotAtual.id, spot_nome: spotAtual.nome, quando: new Date().toISOString() };
+    if (await jaSalvouRecente(item)) return; // sem flood no histórico
     try {
       const r = await fetch(`${BACK_URL}/api/consultas`, {
         method: 'POST',
@@ -599,6 +616,8 @@ $('retry').addEventListener('click', () => carregar(spotAtual));
 const btnLimpar = $('limparHist');
 if (btnLimpar) btnLimpar.addEventListener('click', async () => {
   escLS('marealta_hist', '');
+  // limpa de verdade: apaga também no back (se estiver ao alcance)
+  try { await fetch(`${BACK_URL}/api/consultas`, { method: 'DELETE', signal: AbortSignal.timeout(3000) }); } catch { /* back off: limpa só o local */ }
   try { await carregarHistorico(); } catch { /* segue */ }
 });
 
