@@ -197,13 +197,13 @@ function desenharGrafico(pontos, eventos) {
   ctx.font = '10px JetBrains Mono, monospace';
   for (let i = 0; i <= 3; i++) {
     const h = hmin + ((hmax - hmin) * i) / 3;
-    ctx.strokeStyle = '#ffffff14';
+    ctx.strokeStyle = 'rgba(140,200,230,.12)';
     ctx.beginPath(); ctx.moveTo(L, Y(h)); ctx.lineTo(W - R, Y(h)); ctx.stroke();
-    ctx.fillStyle = '#8b8b8b';
+    ctx.fillStyle = '#8fb3c9';
     ctx.fillText(h.toFixed(1) + 'm', 2, Y(h) + 3);
   }
   // marcas de 6h
-  ctx.fillStyle = '#8b8b8b';
+  ctx.fillStyle = '#8fb3c9';
   const start6 = Math.ceil(t0 / 216e5) * 216e5;
   for (let t = start6; t <= t1; t += 216e5) {
     ctx.fillText(hhMs(t), X(t) - 12, H - 8);
@@ -211,8 +211,8 @@ function desenharGrafico(pontos, eventos) {
 
   // área + curva
   const grad = ctx.createLinearGradient(0, T, 0, H - B);
-  grad.addColorStop(0, 'rgba(125,211,252,.30)');
-  grad.addColorStop(1, 'rgba(125,211,252,0)');
+  grad.addColorStop(0, 'rgba(94,234,255,.30)');
+  grad.addColorStop(1, 'rgba(94,234,255,0)');
   ctx.beginPath();
   let started = false;
   pontos.forEach((p) => {
@@ -220,7 +220,7 @@ function desenharGrafico(pontos, eventos) {
     if (!started) { ctx.moveTo(X(p.ms), Y(p.h)); started = true; }
     else ctx.lineTo(X(p.ms), Y(p.h));
   });
-  ctx.strokeStyle = '#7dd3fc'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = '#5eeaff'; ctx.lineWidth = 2; ctx.stroke();
   ctx.lineTo(X(Math.min(t1, pontos[pontos.length - 1].ms)), Y(hmin));
   ctx.lineTo(X(Math.max(t0, pontos[0].ms)), Y(hmin));
   ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
@@ -230,19 +230,19 @@ function desenharGrafico(pontos, eventos) {
     if (e.ms < t0 || e.ms > t1) return;
     ctx.beginPath();
     ctx.arc(X(e.ms), Y(e.h), 4, 0, Math.PI * 2);
-    ctx.fillStyle = e.tipo === 'preia' ? '#d4ff3f' : '#7dd3fc';
+    ctx.fillStyle = e.tipo === 'preia' ? '#ffd166' : '#5eeaff';
     ctx.fill();
-    ctx.fillStyle = '#ededed';
+    ctx.fillStyle = '#eaf6fd';
     ctx.fillText(hhMs(e.ms), X(e.ms) - 12, Y(e.h) - 8);
   });
 
   // linha AGORA
   if (agora >= t0 && agora <= t1) {
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = '#d4ff3f';
+    ctx.strokeStyle = '#ffd166';
     ctx.beginPath(); ctx.moveTo(X(agora), T); ctx.lineTo(X(agora), H - B); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#d4ff3f';
+    ctx.fillStyle = '#ffd166';
     ctx.fillText('AGORA', X(agora) - 16, T + 2);
   }
 }
