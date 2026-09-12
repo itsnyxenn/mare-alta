@@ -67,6 +67,15 @@ def cors(resp):
     return resp
 
 
+@app.get("/")
+def index():
+    return jsonify({
+        "app": "Maré Alta API 🌊",
+        "status": "no ar",
+        "docs": "use /api/health e /api/consultas",
+    })
+
+
 @app.get("/api/health")
 def health():
     return jsonify({"ok": True, "banco": str(DB_PATH.name)})
