@@ -82,6 +82,17 @@ python api/app.py
 | GET | `/api/health` | checa se o back tá vivo |
 | GET | `/api/consultas?limit=20` | lista últimas (com `fonte`) |
 | POST | `/api/consultas` | salva: `{spot_id, spot_nome, temp_ar, onda_m, nivel_mar, resumo, fonte}` |
+| GET | `/api/tabua?lat=&lon=&estado=&mes=&dias=` | proxy da tábua oficial (com sua chave, fora do IP compartilhado) |
+
+### Chave grátis da tábua (recomendado)
+
+O front tenta a tábua direto no navegador; se o navegador for bloqueado (403),
+ele usa o proxy acima. Pra cota isolada (64 req/min só suas), crie a chave grátis:
+
+1. [tabuamare.api.br](https://tabuamare.api.br/) → **Criar/Logar** (Google) → dashboard → nova api_key
+2. No Render: seu serviço → **Environment** → add `TABUAMARE_KEY` = sua chave → salva
+   (redeploy automático). Local: `set TABUAMARE_KEY=sua_chave` antes do `python api/app.py`.
+3. Sem chave também funciona (anônimo, 16 req/min por IP) — a chave só dá folga.
 
 O front detecta sozinho: back vivo → SQLite; senão → `localStorage`. Nada quebra.
 

@@ -6,7 +6,10 @@ Escuta em: http://127.0.0.1:5000
 """
 
 import os
+import re
 import sqlite3
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from flask import Flask, g, jsonify, request
@@ -79,6 +82,46 @@ def index():
 @app.get("/api/health")
 def health():
     return jsonify({"ok": True, "banco": str(DB_PATH.name)})
+
+
+TABUA_BASE = "https://tabuamare.api.br"
+DIAS_OK = re.compile(r"^\[[\d,\-]+\]$")
+
+
+@app.get("/api/tabua")
+def proxy_tabua():
+    """Proxy da tábua oficial: o navegador às vezes é barrado (403) indo
+    direto; pelo back (com chave própria via TABUAMARE_KEY) passa limpo."""
+    lat = request.args.get("lat", "")
+    lon = request.args.get("lon", "")
+    estado = (request.args.get("estado") or "").lower()
+    mes = request.args.get("mes", "")
+    dias = request.args.get("dias", "")
+    try:
+        float(lat)
+        float(lon)
+        mes = int(mes)
+        if len(estado) != 2 or not (1 <= mes <= 12) or not DIAS_OK.match(dias):
+            raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({"erro": "parâmetros: lat, lon, estado (sigla), mes (1-12), dias ([1,2,3])"}), 400
+
+    url = f"{TABUA_BASE}/api/v2/geo-tabua-mare/[{lat},{lon}]/{estado}/{mes}/{dias}"
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", "User-Agent": "mare-alta/2.0 (projeto de estudo)"},
+    )
+    chave = os.environ.get("TABUAMARE_KEY")
+    if chave:
+        req.add_header("Authorization", "Bearer " + chave)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            corpo = r.read()
+    except urllib.error.HTTPError as e:
+        return jsonify({"erro": f"tábua oficial respondeu {e.code}"}), 502
+    except Exception:
+        return jsonify({"erro": "falha ao falar com a tábua oficial"}), 502
+    return app.response_class(corpo, mimetype="application/json")
 
 
 @app.get("/api/consultas")

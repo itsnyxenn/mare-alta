@@ -97,19 +97,35 @@ function gruposDias() {
   return Object.values(grupos);
 }
 
+async function tentaJson(url, timeoutMs) {
+  try {
+    const opt = timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {};
+    const r = await fetch(url, opt);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
 async function buscarOficial(spot) {
   const chave = spot.id + '@' + new Date().toLocaleDateString('pt-BR', { timeZone: TZ });
   if (cacheOficial[chave]) return cacheOficial[chave];
 
   let info = null;
   const eventos = [];
+  const base = (localStorage.getItem('marealta_backend') || BACK_URL_PADRAO).replace(/\/$/, '');
   for (const g of gruposDias()) {
-    const url = `https://tabuamare.api.br/api/v2/geo-tabua-mare/[${spot.lat},${spot.lon}]/pe/${g.m}/[${g.ds.join(',')}]`;
-    const r = await fetch(url);
-    if (r.status === 429) throw new Error('limite da tábua oficial por IP (429)');
-    if (!r.ok) throw new Error('tábua oficial respondeu HTTP ' + r.status);
-    const j = await r.json();
-    if (!j.data || !j.data.length) throw new Error('sem porto oficial perto deste pico');
+    const diasStr = `[${g.ds.join(',')}]`;
+    // 1) direta (colchetes codificados: alguns WAFs barram [ ] crus)
+    const direta = `https://tabuamare.api.br/api/v2/geo-tabua-mare/${encodeURIComponent(`[${spot.lat},${spot.lon}]`)}/pe/${g.m}/${encodeURIComponent(diasStr)}`;
+    let j = await tentaJson(direta);
+    if (!j && base) {
+      // 2) proxy no nosso back (com chave própria, fora do IP compartilhado)
+      const q = new URLSearchParams({ lat: String(spot.lat), lon: String(spot.lon), estado: 'pe', mes: String(g.m), dias: diasStr });
+      j = await tentaJson(`${base}/api/tabua?${q.toString()}`, 12000);
+    }
+    if (!j || !j.data || !j.data.length) throw new Error('tábua oficial indisponível (tente o modo Modelo 🛰️)');
     const porto = j.data[0];
     if (!info) info = porto;
     (porto.months || []).forEach((mo) => (mo.days || []).forEach((d) => {
