@@ -147,3 +147,7 @@ git push -u origin main
 
 Tábua oficial DHN é referência, mas maré real varia com vento e pressão.
 **Não usar para navegação** — pra isso, as [Tábuas oficiais da Marinha](https://www.marinha.mil.br/chm/tabuas-de-mare).
+
+## Licença
+
+Uso pessoal e educacional do autor. Todos os direitos reservados — ver [LICENSE](LICENSE).
