@@ -31,10 +31,7 @@
 </header>
 
 <main>
-  <section class="spots">
-    <h2>Escolha o pico</h2>
-    <div id="chips" class="chips"></div>
-  </section>
+  <!-- v3: hero + picos vivem dentro de #conteudo -->
 
   <div id="loading" class="loading mono">⌛ puxando dados do mar…</div>
 
@@ -45,28 +42,21 @@
   </div>
 
   <div id="conteudo" hidden>
-    <section id="agora" class="agora-grid">
-      <div class="card big">
-        <p class="label">AR AGORA</p>
+    <section id="agora" class="top-grid">
+      <div class="hero card">
+        <p class="label"><span id="heroSpot">LITORAL</span> · AGORA</p>
         <p class="huge"><span id="tAr">--</span>°C</p>
         <p id="tCond" class="cond">--</p>
         <p class="mono muted">sensação <span id="tSens">--</span>°C</p>
+        <div class="hero-meta">
+          <div><span>VENTO</span><b><span id="tVento">--</span> <small>km/h</small></b><i>umidade <span id="tUmi">--</span>%</i></div>
+          <div><span>MAR</span><b>🌊 <span id="tOnda">--</span> <small>m</small></b><i>água a <span id="tMar">--</span>°C</i></div>
+          <div><span>MARÉ</span><b><span id="tNivel">--</span> <small>m</small></b><i id="tTend">--</i><em>próx: <span id="tProx">--</span></em></div>
+        </div>
       </div>
-      <div class="card">
-        <p class="label">VENTO</p>
-        <p class="big"><span id="tVento">--</span> <small>km/h</small></p>
-        <p class="mono muted">umidade <span id="tUmi">--</span>%</p>
-      </div>
-      <div class="card">
-        <p class="label">MAR AGORA</p>
-        <p class="big">🌊 <span id="tOnda">--</span> <small>m</small></p>
-        <p class="mono muted">água a <span id="tMar">--</span>°C</p>
-      </div>
-      <div class="card tide">
-        <p class="label">NÍVEL DO MAR</p>
-        <p class="big"><span id="tNivel">--</span> <small>m</small></p>
-        <p id="tTend" class="tend">--</p>
-        <p class="mono muted">próx: <span id="tProx">--</span></p>
+      <div class="picos">
+        <h2>Outros picos</h2>
+        <div id="picosList"></div>
       </div>
     </section>
 

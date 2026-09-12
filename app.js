@@ -317,37 +317,52 @@ function renderHorasDias(clima, mar) {
   }
 
   $('diasBox').innerHTML = '';
+  // escala única p/ as barras de amplitude (estilo weather-app)
+  const gmax = clima.daily.temperature_2m_max, gmin = clima.daily.temperature_2m_min;
+  const lo = Math.min(...gmin) - 1, hi = Math.max(...gmax) + 1;
   clima.daily.time.forEach((dia, i) => {
     const row = document.createElement('div');
     row.className = 'dia';
     const [dd, ee] = WMO[clima.daily.weather_code[i]] || ['—', '🌊'];
-    const nome = document.createElement('div');
     const titulo = i === 0 ? 'Hoje' : etiquetaMs(msDaParede(dia + 'T12:00'));
-    nome.innerHTML = '';
+
+    const top = document.createElement('div');
+    top.className = 'dia-top';
     const st = document.createElement('strong'); st.textContent = titulo;
     const sm = document.createElement('span'); sm.className = 'mono'; sm.textContent = ` ${ee} ${dd}`;
-    nome.append(st, sm);
-    const t = document.createElement('div');
-    const tmax = document.createElement('strong');
-    tmax.textContent = Math.round(clima.daily.temperature_2m_max[i]) + '°';
-    const tmin = document.createElement('span');
-    tmin.className = 'mono';
-    tmin.textContent = ` / ${Math.round(clima.daily.temperature_2m_min[i])}°`;
-    t.append(tmax, tmin);
-    const ch = document.createElement('div');
-    ch.className = 'mono';
-    ch.textContent = `☔ ${clima.daily.precipitation_probability_max[i] ?? '--'}%`;
-    const on = document.createElement('div');
-    on.className = 'mono';
-    on.textContent = `🌊 ${mar.daily.wave_height_max[i].toFixed(1)}m máx`;
-    row.append(nome, t, ch, on);
+    top.append(st, sm);
+
+    const mid = document.createElement('div');
+    mid.className = 'dia-mid';
+    const tmin = document.createElement('span'); tmin.className = 'tmin';
+    tmin.textContent = Math.round(gmin[i]) + '°';
+    const range = document.createElement('div'); range.className = 'range';
+    const fill = document.createElement('span');
+    const l = ((gmin[i] - lo) / (hi - lo)) * 100, w = ((gmax[i] - gmin[i]) / (hi - lo)) * 100;
+    fill.style.left = l.toFixed(1) + '%';
+    fill.style.width = Math.max(w, 4).toFixed(1) + '%';
+    range.appendChild(fill);
+    const tmax = document.createElement('strong'); tmax.className = 'tmax';
+    tmax.textContent = Math.round(gmax[i]) + '°';
+    mid.append(tmin, range, tmax);
+
+    const sub = document.createElement('div');
+    sub.className = 'dia-sub mono';
+    sub.textContent = `☔ ${clima.daily.precipitation_probability_max[i] ?? '--'}% · 🌊 ${mar.daily.wave_height_max[i].toFixed(1)}m máx`;
+
+    row.append(top, mid, sub);
     $('diasBox').appendChild(row);
   });
 }
 
 // ---------- histórico (back Flask ou localStorage) ----------
 // Histórico é EXTRA: nunca pode quebrar o status online do app.
+let ultimoSave = { spot: '', t: 0 };
 async function salvarHistorico(entry) {
+  // dedupe: mesmo pico nos últimos 30min não salva de novo (sem flood no histórico)
+  const agoraSave = Date.now();
+  if (ultimoSave.spot === spotAtual.id && agoraSave - ultimoSave.t < 18e5) return;
+  ultimoSave = { spot: spotAtual.id, t: agoraSave };
   try {
     const item = { ...entry, spot_id: spotAtual.id, spot_nome: spotAtual.nome, quando: new Date().toISOString() };
     try {
@@ -403,7 +418,7 @@ async function carregarHistorico() {
 // ---------- fluxo principal ----------
 async function carregar(spot) {
   spotAtual = spot;
-  document.querySelectorAll('#chips button').forEach((b) =>
+  document.querySelectorAll('#picosList .pico').forEach((b) =>
     b.classList.toggle('active', b.dataset.id === spot.id));
   document.querySelectorAll('.seg button').forEach((b) =>
     b.classList.toggle('active', b.dataset.f === fonte));
@@ -426,6 +441,10 @@ async function carregar(spot) {
     if (clima.error || mar.error) throw new Error(clima.reason || mar.reason || 'resposta inválida');
 
     const { agora, desc } = renderClima(clima);
+    const hs = $('heroSpot');
+    if (hs) hs.textContent = spot.nome.toUpperCase();
+    atualizaLinhaPico(spot, Math.round(agora.temperature_2m) + '°', (WMO[agora.weather_code] || ['—', '🌊'])[1]);
+    tempsPicos(); // fire-and-forget: completa as outras linhas
     const m = mar.current || {};
     $('tOnda').textContent = m.wave_height != null ? m.wave_height.toFixed(2) : '--';
     $('tMar').textContent = m.sea_surface_temperature != null ? m.sea_surface_temperature.toFixed(1) : '--';
@@ -533,11 +552,45 @@ setInterval(relogio, 10000);
 
 SPOTS.forEach((s) => {
   const b = document.createElement('button');
-  b.textContent = s.nome;
+  b.className = 'pico';
   b.dataset.id = s.id;
+  const nome = document.createElement('span');
+  nome.className = 'pico-nome';
+  nome.textContent = s.nome;
+  const ico = document.createElement('span');
+  ico.className = 'pico-ico';
+  ico.textContent = '🌊';
+  const tmp = document.createElement('span');
+  tmp.className = 'pico-temp';
+  tmp.textContent = '--°';
+  const go = document.createElement('span');
+  go.className = 'pico-go';
+  go.textContent = '›';
+  b.append(nome, ico, tmp, go);
   b.addEventListener('click', () => carregar(s));
-  $('chips').appendChild(b);
+  $('picosList').appendChild(b);
 });
+
+function atualizaLinhaPico(spot, tempTxt, icone) {
+  const row = document.querySelector(`#picosList [data-id="${spot.id}"]`);
+  if (!row) return;
+  const t = row.querySelector('.pico-temp');
+  const ic = row.querySelector('.pico-ico');
+  if (t && tempTxt) t.textContent = tempTxt;
+  if (ic && icone) ic.textContent = icone;
+}
+
+// temps ao vivo pros outros picos (só Open-Meteo: barato e sem chave)
+async function tempsPicos() {
+  await Promise.all(SPOTS.filter((s) => s.id !== spotAtual.id).map(async (s) => {
+    try {
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${s.lat}&longitude=${s.lon}&current=temperature_2m,weather_code&timezone=${encodeURIComponent(TZ)}&forecast_days=1`);
+      if (!r.ok) return;
+      const j = await r.json();
+      atualizaLinhaPico(s, Math.round(j.current.temperature_2m) + '°', (WMO[j.current.weather_code] || ['—', '🌊'])[1]);
+    } catch { /* linha fica com --° */ }
+  }));
+}
 
 document.querySelectorAll('.seg button').forEach((b) =>
   b.addEventListener('click', () => { fonte = b.dataset.f; carregar(spotAtual); }));
