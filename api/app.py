@@ -5,6 +5,7 @@ Roda com:  python api/app.py   (a partir da pasta mare-alta)
 Escuta em: http://127.0.0.1:5000
 """
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -114,5 +115,9 @@ def salvar_consulta():
 
 if __name__ == "__main__":
     init_db()
-    print(f"🌊 Maré Alta API no ar: http://127.0.0.1:5000  (banco: {DB_PATH})")
-    app.run(debug=True, port=5000)
+    # Na nuvem (Render etc.) a porta vem em $PORT e o host precisa ser 0.0.0.0.
+    # Local: igual a antes (debug ligado). Na nuvem: FLASK_DEBUG=0.
+    port = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
+    print(f"🌊 Maré Alta API no ar na porta {port}  (banco: {DB_PATH})")
+    app.run(host="0.0.0.0", debug=debug, port=port)

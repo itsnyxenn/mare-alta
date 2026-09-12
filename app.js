@@ -16,7 +16,10 @@ const SPOTS = [
   { id: 'janga',     nome: 'Janga · Paulista',  lat: -7.940, lon: -34.830 },
 ];
 
-const BACK_URL = 'http://127.0.0.1:5000'; // back Flask (opcional)
+// Back Flask: local por padrão; p/ usar online, cola a URL do Render
+// no campo "back-end" (seção Histórico) — fica salva no navegador.
+const BACK_URL_PADRAO = 'http://127.0.0.1:5000';
+const BACK_URL = localStorage.getItem('marealta_backend') || BACK_URL_PADRAO;
 const TZ = 'America/Recife';
 const UTC3 = 3 * 3600 * 1000;
 
@@ -516,6 +519,15 @@ $('retry').addEventListener('click', () => carregar(spotAtual));
 $('limparHist').addEventListener('click', async () => {
   localStorage.removeItem('marealta_hist');
   await carregarHistorico();
+});
+
+// URL do back-end configurável (p/ apontar pro Render quando online)
+$('backendUrl').value = localStorage.getItem('marealta_backend') || BACK_URL_PADRAO;
+$('salvarBackend').addEventListener('click', () => {
+  const v = $('backendUrl').value.trim().replace(/\/$/, '');
+  if (v) localStorage.setItem('marealta_backend', v);
+  else localStorage.removeItem('marealta_backend');
+  location.reload(); // recarrega já apontando pro back novo
 });
 
 // tabs do app: destaca conforme a seção visível

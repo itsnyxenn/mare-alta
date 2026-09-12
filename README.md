@@ -85,6 +85,35 @@ python api/app.py
 
 O front detecta sozinho: back vivo → SQLite; senão → `localStorage`. Nada quebra.
 
+## Como publicar online (grátis)
+
+**1. GitHub** — cria a conta (se não tem), cria um repo vazio chamado `mare-alta`
+(sem README/.gitignore), depois aqui na pasta:
+
+```bash
+git remote add origin https://github.com/itsnyxenn/mare-alta.git
+git push -u origin main
+```
+
+**2. Front na Vercel** (app + PWA, HTTPS automático):
+1. [vercel.com](https://vercel.com) → login com GitHub → **Add New → Project**
+2. Importa o repo `mare-alta` → Framework: **Other**, sem build command
+3. **Deploy**. Pronto: `https://mare-alta-seuuser.vercel.app` no ar.
+
+**3. Back no Render** (opcional — o app vive sem ele):
+1. [render.com](https://render.com) → login com GitHub → **New → Web Service**
+2. Seleciona `mare-alta` → **Build Command:** `pip install -r api/requirements.txt`
+3. **Start Command:** `python api/app.py` → env `FLASK_DEBUG=0` → Deploy
+4. Copia a URL (ex. `https://mare-alta-api.onrender.com`)
+
+**4. Liga os dois:** abre teu app online → seção **Histórico** → cola a URL do Render
+no campo `back-end` → salvar. Feito, histórico vai pro SQLite online.
+
+> Limites honestos do grátis: o Render **dorme** sem acesso (~50s pra acordar no
+> primeiro clique) e o **SQLite zera** a cada restart (disco efêmero). O app foi
+> feito pra isso: cai pro `localStorage` sozinho, nada quebra. Quando virar
+> projeto sério, o passo seguinte é Postgres.
+
 ## Git + GitHub
 
 ```bash
