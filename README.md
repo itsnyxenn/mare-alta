@@ -1,53 +1,72 @@
 # 🌊 Maré Alta
 
-Previsão de **clima e maré do litoral de Recife/Olinda** com API pública gratuita (sem chave) + histórico de consultas em **SQLite**.
+Previsão de **clima e maré do litoral de Recife/Olinda** com **tábua oficial DHN/Marinha** + histórico em **SQLite**. Instalável como app (PWA).
 
-> Projeto real, feito pra aprender: front-end puro consumindo API REST + mini back-end em Flask.
-> Status: **v1.0 funcionando** — frontend 100% real, backend opcional.
+> Projeto real, feito pra aprender: front-end puro consumindo APIs REST + mini back-end em Flask.
+> Status: **v2.0 funcionando** — tábua oficial, gráfico de maré, PWA.
 
 ## O que ele faz
 
 - 🌡️ **Agora**: temperatura do ar, sensação térmica, condição, vento, umidade
 - 🌊 **Mar agora**: altura das ondas, temperatura da água, nível do mar + tendência (enchendo/vazando)
-- 🌕 **Tábua de maré**: próximas preia-mares e baixa-mares (derivadas do nível do mar do modelo)
-- ⏭️ **Próximas 24h**: temperatura + ondas hora a hora
-- 📅 **3 dias**: máx/mín, chance de chuva, onda máxima
-- 🕘 **Histórico**: últimas consultas salvas (no backend se estiver rodando, senão no navegador)
+- ⚓ **Tábua oficial**: preia-mares e baixa-mares da DHN/Marinha (porto mais próximo de cada pico), com **gráfico de maré** e linha do AGORA
+- 🔀 **2 fontes de maré**: Oficial DHN (padrão) ou Modelo (fallback automático)
+- ⏭️ **Próximas 24h** + 📅 **3 dias** + 🕘 **Histórico** (com a fonte usada em cada consulta)
+- 📲 **PWA**: instalável no celular, funciona com cache offline básico
 
-## Stack
+## Fontes de dados (a parte importante)
 
-| Parte | Tech |
-|---|---|
-| Front-end | HTML + CSS + JavaScript puro (fetch, sem lib) |
-| Clima | [Open-Meteo Forecast](https://open-meteo.com/en/docs) — grátis, sem chave |
-| Mar e maré | [Open-Meteo Marine](https://open-meteo.com/en/docs/marine-weather-api) — `wave_height`, `sea_surface_temperature`, `sea_level_height_msl` |
-| Back-end | Python + Flask + SQLite (stdlib) |
-| Fuso | America/Recife |
+| Dado | Fonte | Chave? |
+|---|---|---|
+| Clima (ar) | [Open-Meteo Forecast](https://open-meteo.com/en/docs) | não |
+| Ondas + temp. água | [Open-Meteo Marine](https://open-meteo.com/en/docs/marine-weather-api) | não |
+| **Maré oficial** | **DHN/Marinha** via [Tábua de Maré API](https://tabuamare.api.br/) (`GET /api/v2/geo-tabua-mare`) | não (limite por IP) |
+| Maré alternativa | Open-Meteo `sea_level_height_msl` (modelo MFWAM ~8km) | não |
+
+**Validação real (12/09/2026, Porto do Recife):** a API DHN retornou
+04:23/2.54m · 10:46/0.13m · 16:46/2.37m · 22:53/0.14m —
+batendo com a tábua publicada pro dia (4:02/2.5m · 10:15/0.2m · 16:17/2.4m · 22:28/0.2m,
+pequenas diferenças de modelo). Instituição coletora: **DHN**, carta 902, nível médio 1.28m.
+
+O que **não** foi usado de propósito: scraping do tabuademares (site comercial, sem API pública —
+usar raspagem quebraria fácil e violaria os termos deles). A ferramenta oficial da Marinha
+([TábuaMares/REMO](https://pam.marinha.mil.br/tabuamares/tabuamares.html)) também não expõe API;
+ela está linkada no app como referência oficial.
+
+> Uso respeitoso da Tábua de Maré API: chamadas sob demanda por visualização, sem cópia em massa
+> nem cache público. Em `429` o app cai sozinho pro modelo. ([Termos](https://tabuamare.api.br/termos))
 
 ## Estrutura
 
 ```
 mare-alta/
-├── index.html      # app
+├── index.html      # app (tabs, gráfico, seletor de fonte)
 ├── styles.css      # visual dark
-├── app.js          # lógica: APIs, maré, histórico
+├── app.js          # lógica: 3 APIs, maré oficial/modelo, gráfico canvas, PWA
+├── manifest.json   # PWA
+├── sw.js           # service worker (offline básico)
+├── icons/          # ícone 192 + 512 (gerados com PIL)
 ├── api/
 │   ├── app.py          # Flask: salva/lista consultas em SQLite
 │   └── requirements.txt
 └── README.md
 ```
 
-## Como rodar — front (só isso já funciona)
+## Como rodar — front
 
-Opção 1 — abrir o arquivo:
-> Duplo clique em `index.html`. Pronto, dados reais na tela.
-
-Opção 2 — servidor local (recomendado):
 ```bash
 cd mare-alta
 python -m http.server 8000
 # abre http://127.0.0.1:8000
 ```
+
+> `file://` direto também abre, mas o PWA/service worker exige `http://localhost` ou `https`.
+
+### Instalar como app (PWA)
+
+1. Rode o servidor acima (ou publique em HTTPS, ex. Vercel).
+2. No Chrome/Edge do celular: menu ⋮ → **Instalar app / Adicionar à tela inicial**.
+3. Abre em tela cheia, com ícone e splash na cor do app.
 
 ## Como rodar — back-end (histórico em SQLite, opcional)
 
@@ -58,40 +77,33 @@ python api/app.py
 # API em http://127.0.0.1:5000
 ```
 
-Endpoints:
-
 | Método | Rota | Pra quê |
 |---|---|---|
 | GET | `/api/health` | checa se o back tá vivo |
-| GET | `/api/consultas?limit=20` | lista últimas consultas |
-| POST | `/api/consultas` | salva uma: `{spot_id, spot_nome, temp_ar, onda_m, nivel_mar, resumo}` |
+| GET | `/api/consultas?limit=20` | lista últimas (com `fonte`) |
+| POST | `/api/consultas` | salva: `{spot_id, spot_nome, temp_ar, onda_m, nivel_mar, resumo, fonte}` |
 
-O front detecta sozinho: se o back responde, salva lá; se não, salva no `localStorage`. Nada quebra.
+O front detecta sozinho: back vivo → SQLite; senão → `localStorage`. Nada quebra.
 
 ## Git + GitHub
 
-O repo já foi iniciado localmente (`git init`, branch `main`, commit inicial).
-Pra publicar:
-
 ```bash
-# 1. cria o repo vazio no GitHub com nome mare-alta (sem README, sem .gitignore)
-# 2. conecta e sobe:
+# repo vazio no GitHub com nome mare-alta (sem README, sem .gitignore), depois:
 git remote add origin https://github.com/itsnyxenn/mare-alta.git
 git push -u origin main
 ```
 
-Aí o link do portfólio (`github.com/itsnyxenn/mare-alta`) vira real. 🤘
-
 ## Roadmap
 
-- [ ] Tábua oficial da Marinha (CHM) como fonte de maré (mais precisa na costa)
+- [x] Tábua oficial DHN (v2.0)
+- [x] PWA instalável (v2.0)
 - [ ] Deploy: front na Vercel + back no Render
-- [ ] PWA (instalar no celular, ver a maré antes da praia)
-- [ ] Alertas: "preia-mar às 14h, corre pra Boa Viagem"
+- [ ] Cache da tábua no back-end (1 chamada/dia/pico em vez de por view)
+- [ ] Alerta de preia-mar + widget "dá praia?"
+- [ ] Stormglass/WorldTides como 3ª fonte (exige chave grátis do usuário)
 - [ ] Testes no back-end (pytest)
 
 ## ⚠️ Aviso honesto
 
-A maré aqui vem de **modelo numérico** (`sea_level_height_msl` — MFWAM/SMOC via Open-Meteo),
-não da tábua oficial. A doc deles avisa: precisão limitada na costa, **não serve pra navegação**.
-Pra banho de mar tá valendo; pra pilotar barco, consulta a [Marinha (CHM)](https://www.marinha.mil.br/chm/).
+Tábua oficial DHN é referência, mas maré real varia com vento e pressão.
+**Não usar para navegação** — pra isso, as [Tábuas oficiais da Marinha](https://www.marinha.mil.br/chm/tabuas-de-mare).

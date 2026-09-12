@@ -1,9 +1,12 @@
 /* ============================================================
-   MARÉ ALTA v1.0 — clima + maré de Recife/Olinda
-   Front puro: fetch nas APIs Open-Meteo (grátis, sem chave)
-   - Forecast: ar (temp, vento, umidade, condição)
-   - Marine: ondas, temp da água, nível do mar (p/ maré)
-   Histórico: tenta o back Flask, senão usa localStorage.
+   MARÉ ALTA v2.0 — clima + maré de Recife/Olinda (modo app/PWA)
+   Fontes de MARÉ (seletor na tela):
+     - oficial: DHN/Marinha via tabuamare.api.br (sem chave,
+       limite por IP) — porto mais próximo de cada pico.
+     - modelo:  Open-Meteo Marine (sea_level_height_msl),
+       fallback automático se a oficial falhar/limitar.
+   Clima e ondas: sempre Open-Meteo (forecast + marine).
+   Recife = UTC-3 fixo (sem horário de verão).
    ============================================================ */
 
 const SPOTS = [
@@ -15,6 +18,7 @@ const SPOTS = [
 
 const BACK_URL = 'http://127.0.0.1:5000'; // back Flask (opcional)
 const TZ = 'America/Recife';
+const UTC3 = 3 * 3600 * 1000;
 
 // WMO weather code -> [descrição PT-BR, emoji]
 const WMO = {
@@ -31,9 +35,36 @@ const WMO = {
 };
 
 let spotAtual = SPOTS[0];
+let fonte = 'oficial';           // 'oficial' | 'modelo'
+const cacheOficial = {};         // spot.id+dia -> {info, eventos}
+let ultimoGrafico = null;        // p/ redesenhar no resize
 
 // ---------- helpers ----------
 const $ = (id) => document.getElementById(id);
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// parede de Recife (UTC-3) -> ms epoch (Recife não tem DST, offset fixo)
+function msRecife(y, mo, d, H, Mi) {
+  return Date.UTC(y, mo - 1, d, H, Mi) + UTC3;
+}
+// "2026-09-12T14:00" (parede Recife) -> ms
+function msDaParede(iso) {
+  const [D, H] = iso.split('T');
+  const [y, mo, d] = D.split('-').map(Number);
+  const [Hh, Mi] = H.split(':').map(Number);
+  return msRecife(y, mo, d, Hh, Mi);
+}
+function hhMs(ms) {
+  return new Date(ms).toLocaleTimeString('pt-BR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+}
+function etiquetaMs(ms) {
+  const f = (t) => new Date(t).toLocaleDateString('pt-BR', { timeZone: TZ });
+  const hoje = f(Date.now());
+  const dia = f(ms);
+  if (dia === hoje) return 'hoje';
+  if (dia === f(Date.now() + 864e5)) return 'amanhã';
+  return dia.slice(0, 5);
+}
 
 function urlClima(lat, lon) {
   return `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
@@ -41,7 +72,6 @@ function urlClima(lat, lon) {
     `&hourly=temperature_2m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code` +
     `&timezone=${encodeURIComponent(TZ)}&forecast_days=3`;
 }
-
 function urlMar(lat, lon) {
   return `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}` +
     `&current=wave_height,sea_surface_temperature,sea_level_height_msl` +
@@ -49,19 +79,71 @@ function urlMar(lat, lon) {
     `&daily=wave_height_max&timezone=${encodeURIComponent(TZ)}&forecast_days=3&cell_selection=sea`;
 }
 
-// "2026-09-12T14:00" -> "14:00" | etiqueta hoje/amanhã/data
-function hh(iso) { return iso.slice(11, 16); }
-function etiquetaDia(iso) {
-  const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: TZ });
-  const d = new Date(iso + ':00-03:00').toLocaleDateString('pt-BR', { timeZone: TZ });
-  if (d === hoje) return 'hoje';
-  const amanha = new Date(Date.now() + 864e5).toLocaleDateString('pt-BR', { timeZone: TZ });
-  if (d === amanha) return 'amanhã';
-  return d.slice(0, 5);
+// ---------- fonte OFICIAL (DHN via tabuamare.api.br) ----------
+// dias -1..+3 agrupados por (ano, mês), pq a rota pede mês + [dias]
+function gruposDias() {
+  const grupos = {};
+  const hoje = new Date();
+  for (let k = -1; k <= 3; k++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + k);
+    const y = d.getFullYear(), m = d.getMonth() + 1, dia = d.getDate();
+    const key = y + '-' + m;
+    if (!grupos[key]) grupos[key] = { y, m, ds: [] };
+    if (!grupos[key].ds.includes(dia)) grupos[key].ds.push(dia);
+  }
+  return Object.values(grupos);
 }
 
-// Acha preia-mares e baixa-mares na curva do nível do mar (máximos/mínimos locais,
-// com separação mínima de 4h e alternância preia/baixa). Resolução: ±1h.
+async function buscarOficial(spot) {
+  const chave = spot.id + '@' + new Date().toLocaleDateString('pt-BR', { timeZone: TZ });
+  if (cacheOficial[chave]) return cacheOficial[chave];
+
+  let info = null;
+  const eventos = [];
+  for (const g of gruposDias()) {
+    const url = `https://tabuamare.api.br/api/v2/geo-tabua-mare/[${spot.lat},${spot.lon}]/pe/${g.m}/[${g.ds.join(',')}]`;
+    const r = await fetch(url);
+    if (r.status === 429) throw new Error('limite da tábua oficial por IP (429)');
+    if (!r.ok) throw new Error('tábua oficial respondeu HTTP ' + r.status);
+    const j = await r.json();
+    if (!j.data || !j.data.length) throw new Error('sem porto oficial perto deste pico');
+    const porto = j.data[0];
+    if (!info) info = porto;
+    (porto.months || []).forEach((mo) => (mo.days || []).forEach((d) => {
+      (d.hours || []).forEach((h) => {
+        const [H, Mi] = h.hour.split(':').map(Number);
+        eventos.push({ ms: msRecife(g.y, g.m, d.day, H, Mi), h: h.level });
+      });
+    }));
+  }
+  eventos.sort((a, b) => a.ms - b.ms);
+  if (!eventos.length) throw new Error('tábua oficial veio vazia');
+
+  // tipo por direção: subiu em relação ao evento anterior = preia
+  let prev = (info && info.mean_level != null) ? info.mean_level : eventos[0].h;
+  eventos.forEach((e) => { e.tipo = e.h >= prev ? 'preia' : 'baixa'; prev = e.h; });
+
+  const out = { info, eventos };
+  cacheOficial[chave] = out;
+  return out;
+}
+
+// interpola (senoidal) o nível entre dois extremos vizinhos
+function nivelEm(eventos, ms) {
+  if (ms <= eventos[0].ms) return { h: eventos[0].h, tend: 0, prox: eventos[0] };
+  for (let i = 0; i < eventos.length - 1; i++) {
+    const a = eventos[i], b = eventos[i + 1];
+    if (ms >= a.ms && ms <= b.ms) {
+      const f = (ms - a.ms) / (b.ms - a.ms);
+      const h = a.h + (b.h - a.h) * (1 - Math.cos(Math.PI * f)) / 2;
+      return { h, tend: Math.sign(b.h - a.h), prox: b };
+    }
+  }
+  const l = eventos[eventos.length - 1];
+  return { h: l.h, tend: 0, prox: null };
+}
+
+// ---------- fonte MODELO (Open-Meteo): extremos na curva horária ----------
 function acharMares(times, niveis) {
   const out = [];
   for (let i = 1; i < times.length - 1; i++) {
@@ -71,102 +153,165 @@ function acharMares(times, niveis) {
     if (b > a && b >= c) tipo = 'preia';
     else if (b < a && b <= c) tipo = 'baixa';
     if (!tipo) continue;
-
-    const prev = out[out.length - 1];
-    if (prev && prev.tipo === tipo) {
-      // mesmo tipo em sequência: fica só com o mais extremo
-      const melhor = tipo === 'preia' ? b > prev.h : b < prev.h;
-      if (melhor) out[out.length - 1] = { time: times[i], h: b, tipo };
+    const prevEv = out[out.length - 1];
+    if (prevEv && prevEv.tipo === tipo) {
+      const melhor = tipo === 'preia' ? b > prevEv.h : b < prevEv.h;
+      if (melhor) out[out.length - 1] = { ms: msDaParede(times[i]), h: b, tipo };
       continue;
     }
-    if (prev) {
-      const gapH = (new Date(times[i]) - new Date(prev.time)) / 36e5;
-      if (gapH < 4) continue;
-    }
-    out.push({ time: times[i], h: b, tipo });
+    if (prevEv && (msDaParede(times[i]) - prevEv.ms) / 36e5 < 4) continue;
+    out.push({ ms: msDaParede(times[i]), h: b, tipo });
   }
   return out;
 }
 
+// ---------- gráfico de maré (canvas) ----------
+function desenharGrafico(pontos, eventos) {
+  ultimoGrafico = { pontos, eventos };
+  const cv = $('grafico');
+  const largura = Math.max(300, cv.parentElement.getBoundingClientRect().width);
+  const W = largura, H = 220;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.width = '100%'; cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const L = 36, R = 10, T = 14, B = 24;
+  const agora = Date.now();
+  const t0 = Math.min(pontos[0].ms, agora - 12 * 36e5);
+  const t1 = Math.max(pontos[pontos.length - 1].ms, agora + 12 * 36e5);
+  let hmin = Infinity, hmax = -Infinity;
+  pontos.forEach((p) => { if (p.ms >= t0 && p.ms <= t1) { hmin = Math.min(hmin, p.h); hmax = Math.max(hmax, p.h); } });
+  const padH = Math.max(0.15, (hmax - hmin) * 0.2);
+  hmin -= padH; hmax += padH;
+
+  const X = (ms) => L + ((ms - t0) / (t1 - t0)) * (W - L - R);
+  const Y = (h) => T + (1 - (h - hmin) / (hmax - hmin)) * (H - T - B);
+
+  // grade horizontal
+  ctx.font = '10px JetBrains Mono, monospace';
+  for (let i = 0; i <= 3; i++) {
+    const h = hmin + ((hmax - hmin) * i) / 3;
+    ctx.strokeStyle = '#ffffff14';
+    ctx.beginPath(); ctx.moveTo(L, Y(h)); ctx.lineTo(W - R, Y(h)); ctx.stroke();
+    ctx.fillStyle = '#8b8b8b';
+    ctx.fillText(h.toFixed(1) + 'm', 2, Y(h) + 3);
+  }
+  // marcas de 6h
+  ctx.fillStyle = '#8b8b8b';
+  const start6 = Math.ceil(t0 / 216e5) * 216e5;
+  for (let t = start6; t <= t1; t += 216e5) {
+    ctx.fillText(hhMs(t), X(t) - 12, H - 8);
+  }
+
+  // área + curva
+  const grad = ctx.createLinearGradient(0, T, 0, H - B);
+  grad.addColorStop(0, 'rgba(125,211,252,.30)');
+  grad.addColorStop(1, 'rgba(125,211,252,0)');
+  ctx.beginPath();
+  let started = false;
+  pontos.forEach((p) => {
+    if (p.ms < t0 || p.ms > t1) return;
+    if (!started) { ctx.moveTo(X(p.ms), Y(p.h)); started = true; }
+    else ctx.lineTo(X(p.ms), Y(p.h));
+  });
+  ctx.strokeStyle = '#7dd3fc'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.lineTo(X(Math.min(t1, pontos[pontos.length - 1].ms)), Y(hmin));
+  ctx.lineTo(X(Math.max(t0, pontos[0].ms)), Y(hmin));
+  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+  // extremos
+  eventos.forEach((e) => {
+    if (e.ms < t0 || e.ms > t1) return;
+    ctx.beginPath();
+    ctx.arc(X(e.ms), Y(e.h), 4, 0, Math.PI * 2);
+    ctx.fillStyle = e.tipo === 'preia' ? '#d4ff3f' : '#7dd3fc';
+    ctx.fill();
+    ctx.fillStyle = '#ededed';
+    ctx.fillText(hhMs(e.ms), X(e.ms) - 12, Y(e.h) - 8);
+  });
+
+  // linha AGORA
+  if (agora >= t0 && agora <= t1) {
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = '#d4ff3f';
+    ctx.beginPath(); ctx.moveTo(X(agora), T); ctx.lineTo(X(agora), H - B); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#d4ff3f';
+    ctx.fillText('AGORA', X(agora) - 16, T + 2);
+  }
+}
+
 // ---------- render ----------
-function renderTudo(spot, clima, mar) {
+function renderClima(clima) {
   const agora = clima.current;
   const [desc, emoji] = WMO[agora.weather_code] || ['—', '🌊'];
-
   $('tAr').textContent = Math.round(agora.temperature_2m);
   $('tSens').textContent = Math.round(agora.apparent_temperature);
   $('tCond').textContent = `${emoji} ${desc}`;
   $('tVento').textContent = Math.round(agora.wind_speed_10m);
   $('tUmi').textContent = agora.relative_humidity_2m;
+  return { agora, desc };
+}
 
-  const m = mar.current || {};
-  $('tOnda').textContent = m.wave_height != null ? m.wave_height.toFixed(2) : '--';
-  $('tMar').textContent = m.sea_surface_temperature != null ? m.sea_surface_temperature.toFixed(1) : '--';
-  $('tNivel').textContent = m.sea_level_height_msl != null ? m.sea_level_height_msl.toFixed(2) : '--';
-
-  const times = mar.hourly.time;
-  const niveis = mar.hourly.sea_level_height_msl;
-  const mares = acharMares(times, niveis);
-
-  // tendência: compara nível atual com 1h atrás
-  const idxAgora = times.findIndex(t => t >= agora.time.slice(0, 13));
-  const i0 = idxAgora > 0 ? idxAgora : 1;
-  const diff = (niveis[i0] ?? 0) - (niveis[i0 - 1] ?? 0);
-  const tend = $('tTend');
-  if (diff > 0.02) { tend.textContent = '▲ subindo · enchendo'; tend.className = 'tend'; }
-  else if (diff < -0.02) { tend.textContent = '▼ descendo · vazando'; tend.className = 'tend down'; }
-  else { tend.textContent = '＝ estável (estaca)'; tend.className = 'tend'; }
-
-  const futuras = mares.filter(e => e.time >= agora.time.slice(0, 13));
-  const prox = futuras[0];
-  $('tProx').textContent = prox
-    ? `${prox.tipo === 'preia' ? 'preia-mar' : 'baixa-mar'} ${etiquetaDia(prox.time)} ${hh(prox.time)}`
-    : '--';
-
-  // tábua: próximas 6
+function renderMaresLista(futuras) {
   $('mares').innerHTML = '';
-  futuras.slice(0, 6).forEach(e => {
+  futuras.slice(0, 6).forEach((e) => {
     const li = document.createElement('li');
     const s = document.createElement('span');
     s.className = 'tipo ' + e.tipo;
     s.textContent = e.tipo === 'preia' ? '▲ PREIA' : '▼ BAIXA';
     const q = document.createElement('span');
     q.className = 'quando';
-    q.textContent = `${etiquetaDia(e.time)} · ${hh(e.time)}`;
+    q.textContent = `${etiquetaMs(e.ms)} · ${hhMs(e.ms)}`;
     const h = document.createElement('span');
     h.className = 'altura';
     h.textContent = `${e.h >= 0 ? '+' : ''}${e.h.toFixed(2)} m`;
     li.append(s, q, h);
     $('mares').appendChild(li);
   });
+}
 
-  // próximas 24h: temp + onda
+function renderHorasDias(clima, mar) {
   const ht = clima.hourly.time, htemp = clima.hourly.temperature_2m;
   const mt = mar.hourly.time, mw = mar.hourly.wave_height;
-  const start = ht.findIndex(t => t >= agora.time.slice(0, 13));
+  const agoraISO = clima.current.time.slice(0, 13);
+  const start = Math.max(0, ht.findIndex((t) => t >= agoraISO));
   $('horas').innerHTML = '';
   for (let k = 0; k < 24 && start + k < ht.length; k++) {
     const d = document.createElement('div');
     d.className = 'hora';
-    const hHora = document.createElement('div'); hHora.textContent = hh(ht[start + k]);
-    const b = document.createElement('b'); b.textContent = Math.round(htemp[start + k]) + '°';
+    const hHora = document.createElement('div');
+    hHora.textContent = ht[start + k].slice(11, 16);
+    const b = document.createElement('b');
+    b.textContent = Math.round(htemp[start + k]) + '°';
     const s = document.createElement('span');
     const j = mt.indexOf(ht[start + k]);
-    s.textContent = '🌊 ' + (j >= 0 ? mw[j].toFixed(1) : '--') + 'm';
+    s.textContent = '🌊 ' + (j >= 0 && mw[j] != null ? mw[j].toFixed(1) : '--') + 'm';
     d.append(hHora, b, s);
     $('horas').appendChild(d);
   }
 
-  // próximos dias
-  $('dias').innerHTML = '';
+  $('diasBox').innerHTML = '';
   clima.daily.time.forEach((dia, i) => {
     const row = document.createElement('div');
     row.className = 'dia';
     const [dd, ee] = WMO[clima.daily.weather_code[i]] || ['—', '🌊'];
     const nome = document.createElement('div');
-    nome.innerHTML = `<strong>${i === 0 ? 'Hoje' : etiquetaDia(dia + 'T12:00')}</strong> <span class="mono">${ee} ${dd}</span>`;
+    const titulo = i === 0 ? 'Hoje' : etiquetaMs(msDaParede(dia + 'T12:00'));
+    nome.innerHTML = '';
+    const st = document.createElement('strong'); st.textContent = titulo;
+    const sm = document.createElement('span'); sm.className = 'mono'; sm.textContent = ` ${ee} ${dd}`;
+    nome.append(st, sm);
     const t = document.createElement('div');
-    t.innerHTML = `<strong>${Math.round(clima.daily.temperature_2m_max[i])}°</strong> <span class="mono">/ ${Math.round(clima.daily.temperature_2m_min[i])}°</span>`;
+    const tmax = document.createElement('strong');
+    tmax.textContent = Math.round(clima.daily.temperature_2m_max[i]) + '°';
+    const tmin = document.createElement('span');
+    tmin.className = 'mono';
+    tmin.textContent = ` / ${Math.round(clima.daily.temperature_2m_min[i])}°`;
+    t.append(tmax, tmin);
     const ch = document.createElement('div');
     ch.className = 'mono';
     ch.textContent = `☔ ${clima.daily.precipitation_probability_max[i] ?? '--'}%`;
@@ -174,15 +319,8 @@ function renderTudo(spot, clima, mar) {
     on.className = 'mono';
     on.textContent = `🌊 ${mar.daily.wave_height_max[i].toFixed(1)}m máx`;
     row.append(nome, t, ch, on);
-    $('dias').appendChild(row);
+    $('diasBox').appendChild(row);
   });
-
-  return {
-    temp_ar: agora.temperature_2m,
-    onda_m: m.wave_height ?? null,
-    nivel_mar: m.sea_level_height_msl ?? null,
-    resumo: `${desc}, ${Math.round(agora.temperature_2m)}°C, onda ${m.wave_height?.toFixed(2) ?? '--'}m`,
-  };
 }
 
 // ---------- histórico (back Flask ou localStorage) ----------
@@ -207,34 +345,38 @@ async function salvarHistorico(entry) {
 async function carregarHistorico() {
   const ul = $('hist');
   ul.innerHTML = '';
+  const mostra = (lista, origem) => {
+    $('histOrigem').textContent = origem;
+    if (!lista.length) {
+      const li = document.createElement('li');
+      li.textContent = 'nada por aqui ainda — escolhe um pico 👆';
+      ul.appendChild(li);
+      return;
+    }
+    lista.slice(0, 8).forEach((e) => {
+      const li = document.createElement('li');
+      const tag = e.fonte === 'oficial' ? '⚓ DHN' : e.fonte === 'modelo' ? '🛰️ modelo' : '';
+      li.textContent = `${e.spot_nome} · ${e.resumo ?? ''} ${tag}`;
+      ul.appendChild(li);
+    });
+  };
   try {
     const r = await fetch(`${BACK_URL}/api/consultas?limit=8`, { signal: AbortSignal.timeout(1500) });
     if (!r.ok) throw new Error();
-    const lista = await r.json();
-    $('histOrigem').textContent = 'salvo no back-end (SQLite) ✅';
-    if (!lista.length) ul.innerHTML = '<li class="mono">nada por aqui ainda — escolhe um pico 👆</li>';
-    lista.forEach(e => {
-      const li = document.createElement('li');
-      li.textContent = `${e.spot_nome} · ${e.resumo ?? ''}`;
-      ul.appendChild(li);
-    });
-    return;
-  } catch { /* cai pro local */ }
-  const loc = JSON.parse(localStorage.getItem('marealta_hist') || '[]');
-  $('histOrigem').textContent = 'back off — salvo só neste navegador (rode api/app.py p/ SQLite)';
-  if (!loc.length) ul.innerHTML = '<li class="mono">nada por aqui ainda — escolhe um pico 👆</li>';
-  loc.slice(0, 8).forEach(e => {
-    const li = document.createElement('li');
-    li.textContent = `${e.spot_nome} · ${e.resumo ?? ''}`;
-    ul.appendChild(li);
-  });
+    mostra(await r.json(), 'salvo no back-end (SQLite) ✅');
+  } catch {
+    mostra(JSON.parse(localStorage.getItem('marealta_hist') || '[]'),
+      'back off — só neste navegador (rode api/app.py p/ SQLite)');
+  }
 }
 
 // ---------- fluxo principal ----------
 async function carregar(spot) {
   spotAtual = spot;
-  document.querySelectorAll('#chips button').forEach(b =>
+  document.querySelectorAll('#chips button').forEach((b) =>
     b.classList.toggle('active', b.dataset.id === spot.id));
+  document.querySelectorAll('.seg button').forEach((b) =>
+    b.classList.toggle('active', b.dataset.f === fonte));
   $('loading').hidden = false;
   $('erro').hidden = true;
   $('conteudo').hidden = true;
@@ -242,22 +384,109 @@ async function carregar(spot) {
   $('statusPill').className = 'pill';
 
   try {
-    const [rc, rm] = await Promise.all([fetch(urlClima(spot.lat, spot.lon)), fetch(urlMar(spot.lat, spot.lon))]);
-    if (!rc.ok || !rm.ok) throw new Error(`HTTP ${rc.status}/${rm.status}`);
+    // clima + mar (sempre) e tábua oficial (se fonte = oficial) em paralelo
+    const [rc, rm, of] = await Promise.all([
+      fetch(urlClima(spot.lat, spot.lon)),
+      fetch(urlMar(spot.lat, spot.lon)),
+      fonte === 'oficial' ? buscarOficial(spot).catch((e) => ({ __erro: String(e.message || e) })) : Promise.resolve(null),
+    ]);
+    if (!rc.ok || !rm.ok) throw new Error(`clima/mar HTTP ${rc.status}/${rm.status}`);
     const clima = await rc.json();
     const mar = await rm.json();
-    if (clima.error || mar.error) throw new Error((clima.reason || mar.reason || 'resposta inválida'));
+    if (clima.error || mar.error) throw new Error(clima.reason || mar.reason || 'resposta inválida');
 
-    const resumo = renderTudo(spot, clima, mar);
+    const { agora, desc } = renderClima(clima);
+    const m = mar.current || {};
+    $('tOnda').textContent = m.wave_height != null ? m.wave_height.toFixed(2) : '--';
+    $('tMar').textContent = m.sea_surface_temperature != null ? m.sea_surface_temperature.toFixed(1) : '--';
+    renderHorasDias(clima, mar);
+
+    let fonteUsada = 'modelo';
+    let nivelTxt = '--', resumoNivel = '';
+
+    if (of && !of.__erro) {
+      // ===== OFICIAL DHN =====
+      fonteUsada = 'oficial';
+      const agoraMs = Date.now();
+      const ev = of.eventos;
+      const { h, tend, prox } = nivelEm(ev, agoraMs);
+      nivelTxt = '~' + h.toFixed(2);
+      const tendEl = $('tTend');
+      if (tend > 0) { tendEl.textContent = '▲ subindo · enchendo'; tendEl.className = 'tend'; }
+      else if (tend < 0) { tendEl.textContent = '▼ descendo · vazando'; tendEl.className = 'tend down'; }
+      else { tendEl.textContent = '＝ estável (estaca)'; tendEl.className = 'tend'; }
+      $('tProx').textContent = prox
+        ? `${prox.tipo === 'preia' ? 'preia-mar' : 'baixa-mar'} ${etiquetaMs(prox.ms)} ${hhMs(prox.ms)}`
+        : '--';
+
+      const futuras = ev.filter((e) => e.ms >= agoraMs - 36e5);
+      renderMaresLista(futuras);
+
+      const nomePorto = of.info.harbor_name.split(' (')[0].toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+      $('fonteInfo').textContent = `${nomePorto} · carta ${of.info.card} · DHN ${of.info.year}`;
+      $('avisoFonte').textContent =
+        `Tábua oficial DHN/Marinha do Brasil via tabuamare.api.br (porto mais próximo: ${nomePorto}). ` +
+        `Horários locais (UTC-3), alturas na carta do porto. Nível "agora" (~) interpolado entre eventos. Não usar para navegação. ⚓`;
+
+      // gráfico: interpola a cada 30min dentro da cobertura
+      const pts = [];
+      const tIni = Math.max(agoraMs - 12 * 36e5, ev[0].ms);
+      const tFim = Math.min(agoraMs + 36 * 36e5, ev[ev.length - 1].ms);
+      for (let t = tIni; t <= tFim; t += 18e5) pts.push({ ms: t, h: nivelEm(ev, t).h });
+      desenharGrafico(pts, ev);
+      resumoNivel = `nível ~${h.toFixed(2)}m`;
+    } else {
+      // ===== MODELO (fallback) =====
+      if (of && of.__erro) {
+        $('fonteInfo').textContent = `oficial indisponível (${of.__erro}) — usando modelo`;
+      } else {
+        $('fonteInfo').textContent = 'Open-Meteo MFWAM · sem chave';
+      }
+      const times = mar.hourly.time, niveis = mar.hourly.sea_level_height_msl;
+      const mares = acharMares(times, niveis);
+      $('tNivel').textContent = m.sea_level_height_msl != null ? m.sea_level_height_msl.toFixed(2) : '--';
+
+      const idx = times.findIndex((t) => t >= agora.time.slice(0, 13));
+      const i0 = idx > 0 ? idx : 1;
+      const diff = (niveis[i0] ?? 0) - (niveis[i0 - 1] ?? 0);
+      const tendEl = $('tTend');
+      if (diff > 0.02) { tendEl.textContent = '▲ subindo · enchendo'; tendEl.className = 'tend'; }
+      else if (diff < -0.02) { tendEl.textContent = '▼ descendo · vazando'; tendEl.className = 'tend down'; }
+      else { tendEl.textContent = '＝ estável (estaca)'; tendEl.className = 'tend'; }
+
+      const futuras = mares.filter((e) => e.ms >= msDaParede(agora.time.slice(0, 13) + ':00'));
+      const prox = futuras[0];
+      $('tProx').textContent = prox
+        ? `${prox.tipo === 'preia' ? 'preia-mar' : 'baixa-mar'} ${etiquetaMs(prox.ms)} ${hhMs(prox.ms)}`
+        : '--';
+      renderMaresLista(futuras);
+      $('avisoFonte').textContent =
+        'Maré estimada por modelo numérico (Open-Meteo/MFWAM, resolução ~8km) — pode divergir da tábua oficial. Não usar para navegação. ⚓';
+
+      const pts = times.map((t, i) => ({ ms: msDaParede(t), h: niveis[i] })).filter((p) => p.h != null);
+      desenharGrafico(pts, mares);
+      resumoNivel = `nível ${m.sea_level_height_msl?.toFixed(2) ?? '--'}m (modelo)`;
+    }
+
+    if (fonteUsada === 'oficial') $('tNivel').textContent = nivelTxt;
     $('loading').hidden = true;
     $('conteudo').hidden = false;
-    $('statusPill').textContent = '● online';
+    // redesenha com a largura real (antes o container estava hidden)
+    if (ultimoGrafico) desenharGrafico(ultimoGrafico.pontos, ultimoGrafico.eventos);
+    $('statusPill').textContent = fonteUsada === 'oficial' ? '● online · DHN' : '● online · modelo';
     $('statusPill').className = 'pill ok';
-    await salvarHistorico(resumo);
+
+    await salvarHistorico({
+      fonte: fonteUsada,
+      temp_ar: agora.temperature_2m,
+      onda_m: m.wave_height ?? null,
+      nivel_mar: null,
+      resumo: `${desc}, ${Math.round(agora.temperature_2m)}°C, onda ${m.wave_height?.toFixed(2) ?? '--'}m, ${resumoNivel}`,
+    });
   } catch (e) {
     $('loading').hidden = true;
     $('erro').hidden = false;
-    $('erroMsg').textContent = String(e.message || e);
+    $('erroMsg').textContent = String((e && e.message) || e);
     $('statusPill').textContent = '● offline';
     $('statusPill').className = 'pill err';
   }
@@ -267,12 +496,12 @@ async function carregar(spot) {
 function relogio() {
   try {
     $('clock').textContent = new Date().toLocaleTimeString('pt-BR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
-  } catch { /* sem TZ? mantém --:-- */ }
+  } catch { /* mantém --:-- */ }
 }
 relogio();
 setInterval(relogio, 10000);
 
-SPOTS.forEach(s => {
+SPOTS.forEach((s) => {
   const b = document.createElement('button');
   b.textContent = s.nome;
   b.dataset.id = s.id;
@@ -280,10 +509,38 @@ SPOTS.forEach(s => {
   $('chips').appendChild(b);
 });
 
+document.querySelectorAll('.seg button').forEach((b) =>
+  b.addEventListener('click', () => { fonte = b.dataset.f; carregar(spotAtual); }));
+
 $('retry').addEventListener('click', () => carregar(spotAtual));
 $('limparHist').addEventListener('click', async () => {
   localStorage.removeItem('marealta_hist');
   await carregarHistorico();
 });
+
+// tabs do app: destaca conforme a seção visível
+const tabLinks = document.querySelectorAll('.tabs a');
+const tabIO = new IntersectionObserver((ents) => {
+  ents.forEach((en) => {
+    if (en.isIntersecting) {
+      tabLinks.forEach((a) => a.classList.toggle('active', a.dataset.t === en.target.id));
+    }
+  });
+}, { rootMargin: '-40% 0px -55% 0px' });
+['agora', 'mare', 'dias', 'hist'].forEach((id) => {
+  const s = document.getElementById(id);
+  if (s) tabIO.observe(s);
+});
+
+window.addEventListener('resize', () => {
+  if (ultimoGrafico && !$('conteudo').hidden) {
+    desenharGrafico(ultimoGrafico.pontos, ultimoGrafico.eventos);
+  }
+});
+
+// PWA: registra o service worker (só em http/https, não em file://)
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
 
 carregar(SPOTS[0]);

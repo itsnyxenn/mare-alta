@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS consultas (
     temp_ar    REAL,                   -- °C
     onda_m     REAL,                   -- metros
     nivel_mar  REAL,                   -- metros (modelo)
-    resumo     TEXT                    -- texto livre do front
+    resumo     TEXT,                   -- texto livre do front
+    fonte      TEXT                    -- 'oficial' (DHN) ou 'modelo' (v2+)
 );
 """
 
@@ -46,8 +47,13 @@ def fechar_db(exc):
 
 
 def init_db():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as con:
         con.execute(SCHEMA)
+        # migração v1 -> v2: bancos antigos não têm a coluna `fonte`
+        colunas = [r[1] for r in con.execute("PRAGMA table_info(consultas)")]
+        if "fonte" not in colunas:
+            con.execute("ALTER TABLE consultas ADD COLUMN fonte TEXT")
 
 
 @app.after_request
@@ -73,7 +79,7 @@ def listar_consultas():
         return jsonify({"erro": "limit precisa ser número"}), 400
     db = get_db()
     rows = db.execute(
-        "SELECT id, criado_em, spot_id, spot_nome, temp_ar, onda_m, nivel_mar, resumo"
+        "SELECT id, criado_em, spot_id, spot_nome, temp_ar, onda_m, nivel_mar, resumo, fonte"
         " FROM consultas ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -90,8 +96,8 @@ def salvar_consulta():
 
     db = get_db()
     cur = db.execute(
-        "INSERT INTO consultas (criado_em, spot_id, spot_nome, temp_ar, onda_m, nivel_mar, resumo)"
-        " VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO consultas (criado_em, spot_id, spot_nome, temp_ar, onda_m, nivel_mar, resumo, fonte)"
+        " VALUES (datetime('now'), ?, ?, ?, ?, ?, ?, ?)",
         (
             spot_id,
             spot_nome,
@@ -99,6 +105,7 @@ def salvar_consulta():
             dados.get("onda_m"),
             dados.get("nivel_mar"),
             dados.get("resumo"),
+            dados.get("fonte"),
         ),
     )
     db.commit()
@@ -106,7 +113,6 @@ def salvar_consulta():
 
 
 if __name__ == "__main__":
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     init_db()
     print(f"🌊 Maré Alta API no ar: http://127.0.0.1:5000  (banco: {DB_PATH})")
     app.run(debug=True, port=5000)

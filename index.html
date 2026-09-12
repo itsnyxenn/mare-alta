@@ -2,22 +2,28 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Maré Alta — Clima e maré de Recife/Olinda</title>
-<meta name="description" content="Previsão de clima, ondas e tábua de maré do litoral de Recife e Olinda com dados reais e gratuitos." />
+<meta name="description" content="Previsão de clima, ondas e tábua oficial de maré (DHN/Marinha) do litoral de Recife e Olinda." />
 <meta name="theme-color" content="#0a0a0a" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Maré Alta" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🌊</text></svg>" />
 </head>
 <body>
 
 <div class="grain"></div>
 
 <header class="top">
-  <div class="brand">🌊 MARÉ ALTA <span class="ver">v1.0</span></div>
+  <div class="brand">🌊 MARÉ ALTA <span class="ver">v2.0</span></div>
   <div class="top-right mono">
     <span id="statusPill" class="pill">● conectando…</span>
     <span id="clock">--:--</span>
@@ -33,13 +39,13 @@
   <div id="loading" class="loading mono">⌛ puxando dados do mar…</div>
 
   <div id="erro" class="erro" hidden>
-    <p><strong>Deu ruim na conexão com a API.</strong></p>
+    <p><strong>Deu ruim na conexão com as APIs.</strong></p>
     <p id="erroMsg" class="mono"></p>
     <button id="retry">Tentar de novo ↻</button>
   </div>
 
   <div id="conteudo" hidden>
-    <section class="agora-grid">
+    <section id="agora" class="agora-grid">
       <div class="card big">
         <p class="label">AR AGORA</p>
         <p class="huge"><span id="tAr">--</span>°C</p>
@@ -64,23 +70,35 @@
       </div>
     </section>
 
-    <section>
-      <h2>Tábua de maré <small>· próximas preia-mares e baixa-mares</small></h2>
+    <section id="mare">
+      <h2>Tábua de maré</h2>
+      <div class="fonte-row">
+        <div class="seg mono" role="tablist" aria-label="Fonte da tábua de maré">
+          <button data-f="oficial" class="active">⚓ Oficial DHN</button>
+          <button data-f="modelo">🛰️ Modelo</button>
+        </div>
+        <span id="fonteInfo" class="mono muted"></span>
+      </div>
+      <div class="chart-card">
+        <canvas id="grafico"></canvas>
+        <div class="chart-legend mono">
+          <span><i class="dot preia"></i> preia-mar</span>
+          <span><i class="dot baixa"></i> baixa-mar</span>
+          <span><i class="dot agora"></i> agora</span>
+        </div>
+      </div>
       <ul id="mares" class="mares"></ul>
-      <p class="aviso">Maré estimada por modelo (Open-Meteo/MFWAM) — pode divergir da tábua oficial da Marinha. Não usar para navegação. ⚓</p>
+      <p class="aviso" id="avisoFonte"></p>
     </section>
 
-    <section>
+    <section id="dias">
       <h2>Próximas 24h</h2>
       <div id="horas" class="horas"></div>
-    </section>
-
-    <section>
       <h2>Próximos dias</h2>
-      <div id="dias" class="dias"></div>
+      <div id="diasBox" class="dias"></div>
     </section>
 
-    <section>
+    <section id="hist">
       <h2>Últimas consultas <button id="limparHist" class="link-btn">limpar</button></h2>
       <ul id="hist" class="hist"></ul>
       <p id="histOrigem" class="mono muted"></p>
@@ -89,9 +107,16 @@
 </main>
 
 <footer class="mono">
-  <span>dados: Open-Meteo (forecast + marine) · sem chave, grátis</span>
-  <span>feito por Luiz Beltrão 🤘 · <a href="../portfolio-luiz/index.html">portfólio</a></span>
+  <span>clima+ondas: Open-Meteo · maré oficial: DHN/Marinha via tabuamare.api.br</span>
+  <span>feito por Luiz Beltrão 🤘</span>
 </footer>
+
+<nav class="tabs mono" aria-label="Navegação do app">
+  <a href="#agora" data-t="agora">🌊<span>Agora</span></a>
+  <a href="#mare" data-t="mare">🌕<span>Maré</span></a>
+  <a href="#dias" data-t="dias">📅<span>Dias</span></a>
+  <a href="#hist" data-t="hist">🕘<span>Histórico</span></a>
+</nav>
 
 <script src="app.js"></script>
 </body>

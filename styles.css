@@ -101,3 +101,40 @@ footer{display:flex;justify-content:space-between;gap:.8rem;flex-wrap:wrap;paddi
   .agora-grid{grid-template-columns:1fr}
   .top{padding:.8rem}
 }
+
+/* v2: seletor de fonte */
+.fonte-row{display:flex;justify-content:space-between;align-items:center;gap:.8rem;flex-wrap:wrap;margin-bottom:.9rem}
+.seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:99px;padding:3px;gap:3px}
+.seg button{font-family:var(--font-m);font-size:.75rem;background:transparent;color:var(--muted);
+  border:none;border-radius:99px;padding:.55rem 1.1rem;cursor:pointer;transition:.2s}
+.seg button.active{background:var(--sea);color:#03202f;font-weight:700}
+#fonteInfo{font-size:.72rem}
+
+/* v2: gráfico */
+.chart-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem 1rem .6rem;margin-bottom:1rem}
+#grafico{display:block;width:100%}
+.chart-legend{display:flex;gap:1.2rem;padding:.5rem .2rem .4rem;color:var(--muted)}
+.chart-legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:.35rem}
+.dot.preia{background:var(--lime)}
+.dot.baixa{background:var(--sea)}
+.dot.agora{background:transparent;border:2px dashed var(--lime);width:7px;height:7px}
+
+/* v2: tabs do app */
+.tabs{display:none}
+@media(max-width:860px){
+  main{padding-bottom:6rem}
+  .tabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:30;
+    background:rgba(10,10,10,.92);backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);
+    padding:.5rem .4rem calc(.5rem + env(safe-area-inset-bottom))}
+  .tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    font-size:1.05rem;color:var(--muted);padding:.35rem 0;border-radius:12px}
+  .tabs a span{font-size:.62rem;letter-spacing:.04em}
+  .tabs a.active{color:var(--sea)}
+}
+
+/* v2: selo da fonte no histórico */
+.hist .tag-fonte{border-color:#3a4416;color:var(--lime);border:1px solid;border-radius:99px;padding:0 .45rem}
+
+/* v2: âncoras das tabs não ficam embaixo do topo fixo */
+section[id]{scroll-margin-top:76px}
